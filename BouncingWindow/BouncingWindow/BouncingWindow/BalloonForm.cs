@@ -8,18 +8,25 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement.Window;
+using BouncingWindow;
 
 namespace BouncingWindow
 {
     public partial class BalloonForm : Form
     {
+        private Button menuButton;
+        private MenuForm menuForm;
 
         private PictureBox balloon;
         private System.Windows.Forms.Timer balloonTimer;
+        private System.Windows.Forms.Timer spawnTimer;
+
         private float driftAngle = 0f;
         private Random random = new Random();
-        private Button menuButton;
-        private MenuForm menuForm;
+
+        private int balloonSpeed;
+        private int balloonBaseY;
+        private int balloonDriftAmount;
 
         public BalloonForm()//Constructor
         {
@@ -52,6 +59,10 @@ namespace BouncingWindow
             if (selectedDrop != null)
             {
                 int qty = selectedDrop.GetRandomQuantity(); // Get realistic quantity from range or single value
+
+                // ADD TO INVENTORY
+                Inventory.AddItem(selectedDrop.Item, qty);
+
                 MessageBox.Show($" You got: {selectedDrop.Item} x{qty}", "Balloon Drop!");
             }
             else
@@ -89,11 +100,11 @@ namespace BouncingWindow
             int x = this.ClientSize.Width - menuButton.Width - margin;
             int y = this.ClientSize.Height - menuButton.Height - margin;
 
-            menuButton.Location = new Point(x, y);
+            menuButton.Location = new Point(10, 10);
         }
 
 
-        private void InitBalloon()//initialize balloon
+        private void InitBalloon()
         {
             try
             {
@@ -103,7 +114,8 @@ namespace BouncingWindow
                     SizeMode = PictureBoxSizeMode.Zoom,
                     Size = new Size(100, 150),
                     BackColor = Color.Transparent,
-                    Location = new Point(-100, 20)
+                    Location = new Point(-100, 20),
+                    Visible = false // Do NOT show instantly
                 };
             }
             catch (Exception ex)
@@ -118,70 +130,94 @@ namespace BouncingWindow
             balloonTimer = new System.Windows.Forms.Timer();
             balloonTimer.Interval = 30;
             balloonTimer.Tick += BalloonTimer_Tick;
-            balloonTimer.Start();
 
+            spawnTimer = new System.Windows.Forms.Timer();
+            spawnTimer.Tick += SpawnTimer_Tick;
 
-            balloon.Click += Balloon_Click; 
+            balloon.Click += Balloon_Click;
+
+            // Random first spawn after launching program
+            ScheduleNextBalloonSpawn();
         }
 
-        private void BalloonTimer_Tick(object sender, EventArgs e)//makes balloon drift across screen
+        private void ScheduleNextBalloonSpawn()
         {
-            balloon.Left += 2;//moves balloon to the the right each tick
+            balloonTimer.Stop();
+            balloon.Visible = false;
 
-            //these 3 lines use a sine wave to gently  move the balloon up and down
+            // Random delay between 5 and 20 seconds
+            spawnTimer.Interval = random.Next(1000, 5001);
+            spawnTimer.Start();
+        }
+
+        private void SpawnTimer_Tick(object sender, EventArgs e)
+        {
+            spawnTimer.Stop();
+
+            // Random movement settings each time
+            balloonSpeed = random.Next(1, 5);          // 1 to 4 pixels per tick
+            balloonBaseY = random.Next(10, 60);        // random height near top
+            balloonDriftAmount = random.Next(5, 25);   // random wave strength
+
+            driftAngle = (float)(random.NextDouble() * Math.PI * 2);
+
+            balloon.Left = -balloon.Width;
+            balloon.Top = balloonBaseY;
+            balloon.Visible = true;
+
+            balloonTimer.Start();
+        }
+
+        private void BalloonTimer_Tick(object sender, EventArgs e)
+        {
+            balloon.Left += balloonSpeed;
+
             driftAngle += 0.1f;
-            int yDrift = (int)(10 * Math.Sin(driftAngle));
-            balloon.Top = 20 + yDrift;
 
+            int yDrift = (int)(balloonDriftAmount * Math.Sin(driftAngle));
+            balloon.Top = balloonBaseY + yDrift;
 
-            //when the balloon goes off-screen to the right, it resets to the left side and starts again with a new wave pattern.
+            // If balloon leaves the screen, do NOT instantly reset.
+            // Hide it and wait for a random future spawn.
             if (balloon.Left > this.Width)
             {
-                balloon.Left = -balloon.Width;
-                driftAngle = (float)(random.NextDouble() * Math.PI * 2);
+                ScheduleNextBalloonSpawn();
             }
         }
 
-        private void Balloon_Click(object sender, EventArgs e)//Series of events for when the balloon is clicked
+        private void Balloon_Click(object sender, EventArgs e)
         {
-            // Stop movement
             balloonTimer.Stop();
 
-            //play a pop sound
-            System.Media.SoundPlayer player = new System.Media.SoundPlayer("Assets/imp_bite.wav"); //needs change
+            System.Media.SoundPlayer player = new System.Media.SoundPlayer("Assets/imp_bite.wav");
             player.Play();
 
-            // Hide the balloon (or you could remove it)
             balloon.Visible = false;
 
-            //respawn after delay
-            System.Windows.Forms.Timer respawnTimer = new System.Windows.Forms.Timer();
-            respawnTimer.Interval = 2000; // 2 seconds
-            respawnTimer.Tick += (s, args) =>
-            {
-                balloon.Left = -balloon.Width;
-                balloon.Visible = true;
-                balloonTimer.Start();
-                respawnTimer.Stop();
-            };
-            respawnTimer.Start();
+            OnBalloonPopped();
 
-            OnBalloonPopped();//calls the function to get a random item from the drop table
+            // Random respawn instead of fixed 2 seconds
+            ScheduleNextBalloonSpawn();
         }
 
-        
+
 
         private void MenuButton_Click(object sender, EventArgs e)//handles what happens when you click the menu button
         {
             if (menuForm == null || menuForm.IsDisposed)
             {
                 menuForm = new MenuForm();
+                menuForm.StartPosition = FormStartPosition.Manual;
+                menuForm.Location = new Point(
+                    Screen.PrimaryScreen.WorkingArea.Left,
+                    Screen.PrimaryScreen.WorkingArea.Top
+                );
+                menuForm.Show();
             }
-
-            Point screenLocation = this.PointToScreen(menuButton.Location);
-            menuForm.Location = new Point(screenLocation.X + menuButton.Width + 5, screenLocation.Y);
-            menuForm.Show();
-            menuForm.BringToFront();
+            else
+            {
+                menuForm.Visible = !menuForm.Visible;
+            }
         }
     }
 }
